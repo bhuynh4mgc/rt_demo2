@@ -1,0 +1,919 @@
+module ram4x4 (
+                  DO, A, WEN, DI);
+
+
+//-----------------------------+
+// input/output declarations   | 
+//-----------------------------+
+
+input             WEN;
+input [1:0]       A;
+ 
+input [3:0]       DI;
+
+output [3:0]      DO;
+       
+//-----------------------------------------------------------------------+
+// Declarations of data_bus size, address_bus size and the appropriate   | 
+// memory registers for access.                                          | 
+//-----------------------------------------------------------------------+
+
+parameter MEMORY_SIZE   = 4 ;
+parameter WORD_LEN      = 4 ;      
+parameter ADDRESS_WIDTH = 2 ;                
+                                                        
+reg  [0 : (WORD_LEN - 1)]      memory [(MEMORY_SIZE -1) : 0] ;  // the ram memory
+
+
+wire [(ADDRESS_WIDTH -1) : 0] rw_address_reg ; // 'RD' (read) address port.
+
+
+wire [0 : (WORD_LEN - 1)]     bdi_data_reg ;  // input 'data' register.
+
+wire [0 : (WORD_LEN - 1)]     ado_data_wire ; // output 'data' register     
+
+reg  [0 : (WORD_LEN - 1)]     ado_data_reg ; // output 'data' register     
+
+reg  [(MEMORY_SIZE - 1) : 0]  tempi ;
+
+
+//-----------------------------------------------------------+ 
+// convert scalar pins into registers for easy manipulation  | 
+// these are intended to be continuous assignments           |
+// Continuous assignments can only be made to NETS - not     !
+// registers.                                                |
+//-----------------------------------------------------------+
+
+ buf ira0 (A0_BUF,A[0]);
+ buf ira1 (A1_BUF,A[1]);
+     
+ buf dib0 (DI0_BUF,DI[0]);
+ buf dib1 (DI1_BUF,DI[1]);
+ buf dib2 (DI2_BUF,DI[2]);
+ buf dib3 (DI3_BUF,DI[3]);
+
+ buf wenable (WEN_BUF, WEN);
+                      
+ assign
+     rw_address_reg ={ A1_BUF,A0_BUF },
+     bdi_data_reg  = { DI0_BUF, DI1_BUF, DI2_BUF, DI3_BUF
+                     } ;
+
+
+//
+//-----------------------------------------+
+// the model functionality begins here     |
+//-----------------------------------------+
+//
+
+//--------------------------+
+// action on a 'wen 1->0'   | 
+//--------------------------+
+//
+
+ always @(negedge WEN_BUF)
+ begin
+   if (WEN_BUF == 1'b0)
+   begin
+   if (rw_address_reg < MEMORY_SIZE)
+   begin
+               memory [rw_address_reg] = bdi_data_reg ;
+		    ado_data_reg = memory [rw_address_reg] ;
+   end
+   else
+   begin
+      $display("WRITE-ERROR [RAM4X4]: [ Illegal Address A<1:0> = %d > %d ], time = %d\n", rw_address_reg, MEMORY_SIZE, $time);
+      for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+      begin
+	ado_data_reg[tempi] = 1'bx ;
+      end
+   end
+   end
+ end
+
+//--------------------------------------+
+// action on a 'a<1:0>' address change. | 
+//--------------------------------------+
+
+ always @(rw_address_reg)
+ begin
+       if ( WEN_BUF == 1'b1)
+       begin
+	   ado_data_reg = memory [rw_address_reg] ;
+       end
+       else 
+       begin
+
+	 for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+	 begin
+	   ado_data_reg[tempi] = 1'bx ;
+	 end
+         $display("WRITE-ERROR [RAM4X4]: A<1:0> changed at ",$time," while (WEN) = 0\n");
+
+
+	 for (tempi = 0; tempi < MEMORY_SIZE ; tempi = tempi + 1)
+	 begin
+ 	   memory[tempi] = 4'bx ;
+         end
+
+         memory [rw_address_reg] = bdi_data_reg ;
+         ado_data_reg = memory [rw_address_reg] ;
+
+       end  
+ end                              
+
+//----------------------------------------------+
+// action on a 'data-input (di<3:0>)' change   |
+//----------------------------------------------+
+
+ always @(bdi_data_reg)
+ begin
+	if ( WEN_BUF  == 1'b0 )
+	begin
+		memory [rw_address_reg] = bdi_data_reg ;
+		ado_data_reg = memory [rw_address_reg] ;
+	end
+ end
+
+
+//
+//-----------------------------------------------------------------+
+// Convert the vectored output to acceleratable primitives, as in  | 
+// A = A[0];                                                       | 
+//-----------------------------------------------------------------+
+//
+ assign ado_data_wire = ado_data_reg ;
+        
+ buf A00  (DO[0], ado_data_wire[0]);
+ buf A01  (DO[1], ado_data_wire[1]);
+ buf A02  (DO[2], ado_data_wire[2]);
+ buf A03  (DO[3], ado_data_wire[3]);
+
+specify         
+
+  specparam TAS = 0, TAH = 0, TWP = 0, TDS = 0, TDH = 0 ;
+  specparam TOE_R=1,TOE_F=1,TIO_R=1,TIO_F=1, TWO_R=1,TWO_F=1, TAA_R=1,TAA_F=1 ; 
+                         
+ 
+ 
+                
+
+if ( !WEN )
+ (DI[0] +=> DO[0])   = (TIO_R,TIO_F) ;  // tio                
+if ( !WEN )
+ (DI[1] +=> DO[1])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[2] +=> DO[2])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[3] +=> DO[3])   = (TIO_R,TIO_F) ;                 
+
+
+ (A[0] => DO[0])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[0])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[1])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[1])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[2])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[2])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[3])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[3])    = (TAA_R,TAA_F) ;
+
+if (WEN == 0)
+  (negedge WEN => (DO[0] +: DI[0]))   = (TWO_R,TWO_F) ;               
+if (WEN == 0)
+  (negedge WEN => (DO[1] +: DI[1]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[2] +: DI[2]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[3] +: DI[3]))   = (TWO_R,TWO_F) ;                 
+
+//
+// add all setup/hold checks for data and the address.
+//
+
+  $setup (A[0], negedge WEN, TAS);
+  $hold  (posedge WEN, A[0], TAH);
+  $setup (A[1], negedge WEN, TAS);
+  $hold  (posedge WEN, A[1], TAH);
+            
+  $width (negedge WEN, TWP);
+
+  $setup (DI[0], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[0], TDH);
+  $setup (DI[1], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[1], TDH);
+  $setup (DI[2], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[2], TDH);
+  $setup (DI[3], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[3], TDH);
+
+ endspecify
+endmodule
+`endcelldefine
+
+//////////////////////////////////////////////////////////////
+
+
+module ram32x8 (
+                  DO, A, WEN, DI);
+
+
+//-----------------------------+
+// input/output declarations   | 
+//-----------------------------+
+
+input             WEN;
+input [4:0]       A;
+ 
+input [7:0]       DI;
+
+output [7:0]      DO;
+       
+//-----------------------------------------------------------------------+
+// Declarations of data_bus size, address_bus size and the appropriate   | 
+// memory registers for access.                                          | 
+//-----------------------------------------------------------------------+
+
+parameter MEMORY_SIZE   = 32 ;
+parameter WORD_LEN      = 8 ;      
+parameter ADDRESS_WIDTH = 5 ;                
+                                                        
+reg  [0 : (WORD_LEN - 1)]      memory [(MEMORY_SIZE -1) : 0] ;  // the ram memory
+
+
+wire [(ADDRESS_WIDTH -1) : 0] rw_address_reg ; // 'RD' (read) address port.
+
+
+wire [0 : (WORD_LEN - 1)]     bdi_data_reg ;  // input 'data' register.
+
+wire [0 : (WORD_LEN - 1)]     ado_data_wire ; // output 'data' register     
+
+reg  [0 : (WORD_LEN - 1)]     ado_data_reg ; // output 'data' register     
+
+reg  [(MEMORY_SIZE - 1) : 0]  tempi ;
+
+
+//-----------------------------------------------------------+ 
+// convert scalar pins into registers for easy manipulation  | 
+// these are intended to be continuous assignments           |
+// Continuous assignments can only be made to NETS - not     !
+// registers.                                                |
+//-----------------------------------------------------------+
+
+ buf ira0 (A0_BUF,A[0]);
+ buf ira1 (A1_BUF,A[1]);
+ buf ira2 (A2_BUF,A[2]);
+ buf ira3 (A3_BUF,A[3]);
+ buf ira4 (A4_BUF,A[4]);
+     
+ buf dib0 (DI0_BUF,DI[0]);
+ buf dib1 (DI1_BUF,DI[1]);
+ buf dib2 (DI2_BUF,DI[2]);
+ buf dib3 (DI3_BUF,DI[3]);
+ buf dib4 (DI4_BUF,DI[4]);
+ buf dib5 (DI5_BUF,DI[5]);
+ buf dib6 (DI6_BUF,DI[6]);
+ buf dib7 (DI7_BUF,DI[7]);
+
+ buf wenable (WEN_BUF, WEN);
+                      
+ assign
+     rw_address_reg ={ A4_BUF, A3_BUF, A2_BUF, A1_BUF,A0_BUF },
+     bdi_data_reg  = { DI0_BUF, DI1_BUF, DI2_BUF, DI3_BUF, DI4_BUF, DI5_BUF, DI6_BUF, DI7_BUF
+                     } ;
+
+
+//
+//-----------------------------------------+
+// the model functionality begins here     |
+//-----------------------------------------+
+//
+
+//--------------------------+
+// action on a 'wen 1->0'   | 
+//--------------------------+
+//
+
+ always @(negedge WEN_BUF)
+ begin
+   if (WEN_BUF == 1'b0)
+   begin
+   if (rw_address_reg < MEMORY_SIZE)
+   begin
+               memory [rw_address_reg] = bdi_data_reg ;
+		    ado_data_reg = memory [rw_address_reg] ;
+   end
+   else
+   begin
+      $display("WRITE-ERROR [RAM4X4]: [ Illegal Address A<1:0> = %d > %d ], time = %d\n", rw_address_reg, MEMORY_SIZE, $time);
+      for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+      begin
+	ado_data_reg[tempi] = 1'bx ;
+      end
+   end
+   end
+ end
+
+//--------------------------------------+
+// action on a 'a<1:0>' address change. | 
+//--------------------------------------+
+
+ always @(rw_address_reg)
+ begin
+       if ( WEN_BUF == 1'b1)
+       begin
+	   ado_data_reg = memory [rw_address_reg] ;
+       end
+       else 
+       begin
+
+	 for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+	 begin
+	   ado_data_reg[tempi] = 1'bx ;
+	 end
+         $display("WRITE-ERROR [RAM32X8]: A<3:0> changed at ",$time," while (WEN) = 0\n");
+
+
+	 for (tempi = 0; tempi < MEMORY_SIZE ; tempi = tempi + 1)
+	 begin
+ 	   memory[tempi] = 4'bx ;
+         end
+
+         memory [rw_address_reg] = bdi_data_reg ;
+         ado_data_reg = memory [rw_address_reg] ;
+
+       end  
+ end                              
+
+//----------------------------------------------+
+// action on a 'data-input (di<7:0>)' change   |
+//----------------------------------------------+
+
+ always @(bdi_data_reg)
+ begin
+	if ( WEN_BUF  == 1'b0 )
+	begin
+		memory [rw_address_reg] = bdi_data_reg ;
+		ado_data_reg = memory [rw_address_reg] ;
+	end
+ end
+
+
+//
+//-----------------------------------------------------------------+
+// Convert the vectored output to acceleratable primitives, as in  | 
+// A = A[0];                                                       | 
+//-----------------------------------------------------------------+
+//
+ assign ado_data_wire = ado_data_reg ;
+        
+ buf A00  (DO[0], ado_data_wire[0]);
+ buf A01  (DO[1], ado_data_wire[1]);
+ buf A02  (DO[2], ado_data_wire[2]);
+ buf A03  (DO[3], ado_data_wire[3]);
+ buf A04  (DO[4], ado_data_wire[4]);
+ buf A05  (DO[5], ado_data_wire[5]);
+ buf A06  (DO[6], ado_data_wire[6]);
+ buf A07  (DO[7], ado_data_wire[7]);
+
+specify         
+
+  specparam TAS = 0, TAH = 0, TWP = 0, TDS = 0, TDH = 0 ;
+  specparam TOE_R=1,TOE_F=1,TIO_R=1,TIO_F=1, TWO_R=1,TWO_F=1, TAA_R=1,TAA_F=1 ; 
+                         
+ 
+ 
+                
+
+if ( !WEN )
+ (DI[0] +=> DO[0])   = (TIO_R,TIO_F) ;  // tio                
+if ( !WEN )
+ (DI[1] +=> DO[1])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[2] +=> DO[2])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[3] +=> DO[3])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[4] +=> DO[4])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[5] +=> DO[5])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[6] +=> DO[6])   = (TIO_R,TIO_F) ;                 
+if ( !WEN )
+ (DI[7] +=> DO[7])   = (TIO_R,TIO_F) ;                 
+
+
+ (A[0] => DO[0])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[0])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[0])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[0])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[0])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[1])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[1])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[1])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[1])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[1])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[2])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[2])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[2])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[2])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[2])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[3])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[3])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[3])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[3])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[3])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[4])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[4])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[4])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[4])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[4])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[5])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[5])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[5])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[5])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[5])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[6])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[6])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[6])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[6])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[6])    = (TAA_R,TAA_F) ;
+
+ (A[0] => DO[7])    = (TAA_R,TAA_F) ;
+ (A[1] => DO[7])    = (TAA_R,TAA_F) ;
+ (A[2] => DO[7])    = (TAA_R,TAA_F) ;
+ (A[3] => DO[7])    = (TAA_R,TAA_F) ;
+ (A[4] => DO[7])    = (TAA_R,TAA_F) ;
+
+
+if (WEN == 0)
+  (negedge WEN => (DO[0] +: DI[0]))   = (TWO_R,TWO_F) ;               
+if (WEN == 0)
+  (negedge WEN => (DO[1] +: DI[1]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[2] +: DI[2]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[3] +: DI[3]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[4] +: DI[4]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[5] +: DI[5]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[6] +: DI[6]))   = (TWO_R,TWO_F) ;                 
+if (WEN == 0)
+  (negedge WEN => (DO[7] +: DI[7]))   = (TWO_R,TWO_F) ;                 
+
+//
+// add all setup/hold checks for data and the address.
+//
+
+  $setup (A[0], negedge WEN, TAS);
+  $hold  (posedge WEN, A[0], TAH);
+  $setup (A[1], negedge WEN, TAS);
+  $hold  (posedge WEN, A[1], TAH);
+  $setup (A[2], negedge WEN, TAS);
+  $hold  (posedge WEN, A[2], TAH);
+  $setup (A[3], negedge WEN, TAS);
+  $hold  (posedge WEN, A[3], TAH);
+  $setup (A[4], negedge WEN, TAS);
+  $hold  (posedge WEN, A[4], TAH);
+            
+  $width (negedge WEN, TWP);
+
+  $setup (DI[0], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[0], TDH);
+  $setup (DI[1], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[1], TDH);
+  $setup (DI[2], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[2], TDH);
+  $setup (DI[3], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[3], TDH);
+  $setup (DI[4], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[4], TDH);
+  $setup (DI[5], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[5], TDH);
+  $setup (DI[6], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[6], TDH);
+  $setup (DI[7], posedge WEN, TDS);
+  $hold  (posedge WEN, DI[7], TDH);
+
+ endspecify
+endmodule
+`endcelldefine
+
+
+
+
+
+////////////////////////////////////////////////////////////////
+
+`celldefine 
+module ram8x4 (
+                  da_o3, da_o2, da_o1, da_o0,
+                  aa2, aa1, aa0, 
+                  wena,
+                  da_i3, da_i2, da_i1, da_i0,
+                  db_o3, db_o2, db_o1, db_o0,
+                  ab2, ab1, ab0, 
+                  wenb,
+                  db_i3, db_i2, db_i1, db_i0);
+
+
+//-----------------------------+
+// input/output declarations   | 
+//-----------------------------+
+
+input             wena, aa0, aa1, aa2 ;
+ 
+input             da_i0, da_i1, da_i2, da_i3 ;
+
+output            da_o0, da_o1, da_o2, da_o3 ;
+       
+output            db_o3, db_o2, db_o1, db_o0;
+input             ab2, ab1, ab0, wenb;
+input             db_i3, db_i2, db_i1, db_i0;
+
+//-----------------------------------------------------------------------+
+// Declarations of data_bus size, address_bus size and the appropriate   | // memory registers for access.                                          | //-----------------------------------------------------------------------+
+
+parameter MEMORY_SIZE   = 8 ;
+parameter WORD_LEN      = 4 ;      
+parameter ADDRESS_WIDTH = 3 ;                
+                                                        
+reg  [0 : (WORD_LEN - 1)]      memory [(MEMORY_SIZE -1) : 0] ;  // the ram memory
+
+wire [(ADDRESS_WIDTH -1) : 0] rw_address_reg_a, rw_address_reg_b ; // 'RD' (read) address port.
+
+wire [0 : (WORD_LEN - 1)]     bdi_data_reg_a, bdi_data_reg_b ;  // input 'data' register.
+
+wire [0 : (WORD_LEN - 1)]     ado_data_wire_a, ado_data_wire_b ; // output 'data' register     
+
+reg  [0 : (WORD_LEN - 1)]     ado_data_reg_a, ado_data_reg_b ; // output 'data' register     
+reg  [(MEMORY_SIZE - 1) : 0]  tempi ;
+
+
+//-----------------------------------------------------------+ 
+// convert scalar pins into registers for easy manipulation  | 
+// these are intended to be continuous assignments           |
+// Continuous assignments can only be made to NETS - not     !
+// registers.                                                |
+//-----------------------------------------------------------+
+
+ buf iraa0 (aa0_BUF,aa0);
+ buf iraa1 (aa1_BUF,aa1);
+ buf iraa2 (aa2_BUF,aa2);
+
+ buf irab0 (ab0_BUF,ab0);
+ buf irab1 (ab1_BUF,ab1);
+ buf irab2 (ab2_BUF,ab2);
+     
+ buf dib0_a (da_i0_BUF,da_i0);
+ buf dib1_a (da_i1_BUF,da_i1);
+ buf dib2_a (da_i2_BUF,da_i2);
+ buf dib3_a (da_i3_BUF,da_i3);
+
+ buf wenaable (wena_BUF, wena);
+
+ buf dib0_b (db_i0_BUF,db_i0);
+ buf dib1_b (db_i1_BUF,db_i1);
+ buf dib2_b (db_i2_BUF,db_i2);
+ buf dib3_b (db_i3_BUF,db_i3);
+
+ buf wenbable (wenb_BUF, wenb);
+                      
+ assign
+     rw_address_reg_a ={ aa2_BUF,aa1_BUF,aa0_BUF },
+     bdi_data_reg_a  = { da_i0_BUF, da_i1_BUF, da_i2_BUF, da_i3_BUF
+                     },
+     rw_address_reg_b ={ ab2_BUF,ab1_BUF,ab0_BUF },
+     bdi_data_reg_b  = { db_i0_BUF, db_i1_BUF, db_i2_BUF, db_i3_BUF
+                     } ;
+
+
+//
+//-----------------------------------------+
+// the model functionality begins here     |
+//-----------------------------------------+
+//Port A
+
+//--------------------------+
+// action on a 'wena 1->0'   | 
+//--------------------------+
+//
+
+ always @(negedge wena_BUF)
+ begin
+   if (wena_BUF == 1'b0)
+   begin
+   if (rw_address_reg_a < MEMORY_SIZE)
+   begin
+               memory [rw_address_reg_a] = bdi_data_reg_a ;
+                    ado_data_reg_a = memory [rw_address_reg_a] ;
+	if (rw_address_reg_b == rw_address_reg_a)
+		    ado_data_reg_b = memory [rw_address_reg_a] ;
+   end
+   else
+   begin
+      $display("WRITE-ERROR [RAM4X4]: [ Illegal Address A<1:0> = %d > %d ], time = %d\n", rw_address_reg_a, MEMORY_SIZE, $time);
+      for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+      begin
+        ado_data_reg_a[tempi] = 1'bx ;
+      end
+   end
+   end
+ end
+
+//--------------------------------------+
+// action on a 'a<1:0>' address change. | 
+//--------------------------------------+
+
+ always @(rw_address_reg_a)
+ begin
+       if ( wena_BUF == 1'b1)
+       begin
+           ado_data_reg_a = memory [rw_address_reg_a] ;
+       end
+       else 
+       begin
+
+         for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+         begin
+           ado_data_reg_a[tempi] = 1'bx ;
+         end
+         $display("WRITE-ERROR [RAM4X4]: A<1:0> changed at ",$time," while (wena) = 0\n");
+
+
+         for (tempi = 0; tempi < MEMORY_SIZE ; tempi = tempi + 1)
+         begin
+           memory[tempi] = 4'bx ;
+         end
+
+         memory [rw_address_reg_a] = bdi_data_reg_a ;
+         ado_data_reg_a = memory [rw_address_reg_a] ;
+
+       end  
+ end                              
+
+//----------------------------------------------+
+// action on a 'data-input (di<3:0>)' change   |
+//----------------------------------------------+
+
+ always @(bdi_data_reg_a)
+ begin
+        if ( wena_BUF  == 1'b0 )
+        begin
+                memory [rw_address_reg_a] = bdi_data_reg_a ;
+                ado_data_reg_a = memory [rw_address_reg_a] ;
+	    if (rw_address_reg_b == rw_address_reg_a)
+		ado_data_reg_b = memory [rw_address_reg_a] ;
+        end
+ end
+
+
+//
+//-----------------------------------------------------------------+
+// Convert the vectored output to acceleratable primitives, as in  | 
+// A = A[0];                                                       | 
+//-----------------------------------------------------------------+
+//
+ assign ado_data_wire_a = ado_data_reg_a ;
+        
+ buf aa00  (da_o0, ado_data_wire_a[0]);
+ buf aa01  (da_o1, ado_data_wire_a[1]);
+ buf aa02  (da_o2, ado_data_wire_a[2]);
+ buf aa03  (da_o3, ado_data_wire_a[3]);
+
+specify         
+
+  specparam TAS = 0, TAH = 0, TWP = 0, TDS = 0, TDH = 0 ;
+  specparam TOE_R=1,TOE_F=1,TIO_R=1,TIO_F=1, TWO_R=1,TWO_F=1, TAA_R=1,TAA_F=1 ; 
+                         
+ 
+ 
+                
+
+if ( !wena )
+ (da_i0 +=> da_o0)   = (TIO_R,TIO_F) ;  // tio                
+if ( !wena )
+ (da_i1 +=> da_o1)   = (TIO_R,TIO_F) ;                 
+if ( !wena )
+ (da_i2 +=> da_o2)   = (TIO_R,TIO_F) ;                 
+if ( !wena )
+ (da_i3 +=> da_o3)   = (TIO_R,TIO_F) ;                 
+
+
+ (aa0 => da_o0)    = (TAA_R,TAA_F) ;
+ (aa1 => da_o0)    = (TAA_R,TAA_F) ;
+ (aa2 => da_o0)    = (TAA_R,TAA_F) ;
+
+ (aa0 => da_o1)    = (TAA_R,TAA_F) ;
+ (aa1 => da_o1)    = (TAA_R,TAA_F) ;
+ (aa2 => da_o1)    = (TAA_R,TAA_F) ;
+
+ (aa0 => da_o2)    = (TAA_R,TAA_F) ;
+ (aa1 => da_o2)    = (TAA_R,TAA_F) ;
+ (aa2 => da_o2)    = (TAA_R,TAA_F) ;
+
+ (aa0 => da_o3)    = (TAA_R,TAA_F) ;
+ (aa1 => da_o3)    = (TAA_R,TAA_F) ;
+ (aa2 => da_o3)    = (TAA_R,TAA_F) ;
+
+if (wena == 0)
+  (negedge wena => (da_o0 +: da_i0))   = (TWO_R,TWO_F) ;               
+if (wena == 0)
+  (negedge wena => (da_o1 +: da_i1))   = (TWO_R,TWO_F) ;                 
+if (wena == 0)
+  (negedge wena => (da_o2 +: da_i2))   = (TWO_R,TWO_F) ;                 
+if (wena == 0)
+  (negedge wena => (da_o3 +: da_i3))   = (TWO_R,TWO_F) ;                 
+
+//
+// add all setup/hold checks for data and the address.
+//
+
+  $setup (aa0, negedge wena, TAS);
+  $hold  (posedge wena, aa0, TAH);
+  $setup (aa1, negedge wena, TAS);
+  $hold  (posedge wena, aa1, TAH);
+  $setup (aa2, negedge wena, TAS);
+  $hold  (posedge wena, aa2, TAH);
+            
+  $width (negedge wena, TWP);
+
+  $setup (da_i0, posedge wena, TDS);
+  $hold  (posedge wena, da_i0, TDH);
+  $setup (da_i1, posedge wena, TDS);
+  $hold  (posedge wena, da_i1, TDH);
+  $setup (da_i2, posedge wena, TDS);
+  $hold  (posedge wena, da_i2, TDH);
+  $setup (da_i3, posedge wena, TDS);
+  $hold  (posedge wena, da_i3, TDH);
+
+ endspecify
+
+
+//
+//-----------------------------------------+
+// the model functionality begins here     |
+//-----------------------------------------+
+//Port B
+
+//--------------------------+
+// action on a 'wenb 1->0'   | 
+//--------------------------+
+//
+
+ always @(negedge wenb_BUF)
+ begin
+   if (wenb_BUF == 1'b0)
+   begin
+   if (rw_address_reg_b < MEMORY_SIZE)
+   begin
+               memory [rw_address_reg_b] = bdi_data_reg_b ;
+                    ado_data_reg_a = memory [rw_address_reg_b] ;
+	if (rw_address_reg_b == rw_address_reg_a)
+                    ado_data_reg_b = memory [rw_address_reg_b] ;
+   end
+   else
+   begin
+      $display("WRITE-ERROR [RAM4X4]: [ Illegal Address A<1:0> = %d > %d ], time = %d\n", rw_address_reg_b, MEMORY_SIZE, $time);
+      for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+      begin
+        ado_data_reg_b[tempi] = 1'bx ;
+      end
+   end
+   end
+ end
+
+//--------------------------------------+
+// action on a 'a<1:0>' address change. | 
+//--------------------------------------+
+
+ always @(rw_address_reg_b)
+ begin
+       if ( wenb_BUF == 1'b1)
+       begin
+           ado_data_reg_b = memory [rw_address_reg_b] ;
+       end
+       else 
+       begin
+
+         for (tempi = 0; tempi < WORD_LEN; tempi = tempi + 1)
+         begin
+           ado_data_reg_b[tempi] = 1'bx ;
+         end
+         $display("WRITE-ERROR [RAM4X4]: A<1:0> changed at ",$time," while (wenb) = 0\n");
+
+
+         for (tempi = 0; tempi < MEMORY_SIZE ; tempi = tempi + 1)
+         begin
+           memory[tempi] = 4'bx ;
+         end
+
+         memory [rw_address_reg_b] = bdi_data_reg_b ;
+         ado_data_reg_b = memory [rw_address_reg_b] ;
+
+       end  
+ end                              
+
+//----------------------------------------------+
+// action on a 'data-input (di<3:0>)' change   |
+//----------------------------------------------+
+
+ always @(bdi_data_reg_b)
+ begin
+        if ( wenb_BUF  == 1'b0 )
+        begin
+                memory [rw_address_reg_b] = bdi_data_reg_b ;
+                ado_data_reg_b = memory [rw_address_reg_b] ;
+	    if (rw_address_reg_b == rw_address_reg_a)
+                ado_data_reg_a = memory [rw_address_reg_b] ;
+        end
+ end
+
+
+//
+//-----------------------------------------------------------------+
+// Convert the vectored output to acceleratable primitives, as in  | 
+// A = A[0];                                                       | 
+//-----------------------------------------------------------------+
+//
+ assign ado_data_wire_b = ado_data_reg_b ;
+        
+ buf ab00  (db_o0, ado_data_wire_b[0]);
+ buf ab01  (db_o1, ado_data_wire_b[1]);
+ buf ab02  (db_o2, ado_data_wire_b[2]);
+ buf ab03  (db_o3, ado_data_wire_b[3]);
+
+specify         
+ 
+                
+
+if ( !wenb )
+ (db_i0 +=> db_o0)   = (TIO_R,TIO_F) ;  // tio                
+if ( !wenb )
+ (db_i1 +=> db_o1)   = (TIO_R,TIO_F) ;                 
+if ( !wenb )
+ (db_i2 +=> db_o2)   = (TIO_R,TIO_F) ;                 
+if ( !wenb )
+ (db_i3 +=> db_o3)   = (TIO_R,TIO_F) ;                 
+
+
+ (ab0 => db_o0)    = (TAA_R,TAA_F) ;
+ (ab1 => db_o0)    = (TAA_R,TAA_F) ;
+ (ab2 => db_o0)    = (TAA_R,TAA_F) ;
+
+ (ab0 => db_o1)    = (TAA_R,TAA_F) ;
+ (ab1 => db_o1)    = (TAA_R,TAA_F) ;
+ (ab2 => db_o1)    = (TAA_R,TAA_F) ;
+
+ (ab0 => db_o2)    = (TAA_R,TAA_F) ;
+ (ab1 => db_o2)    = (TAA_R,TAA_F) ;
+ (ab2 => db_o2)    = (TAA_R,TAA_F) ;
+
+ (ab0 => db_o3)    = (TAA_R,TAA_F) ;
+ (ab1 => db_o3)    = (TAA_R,TAA_F) ;
+ (ab2 => db_o3)    = (TAA_R,TAA_F) ;
+
+if (wenb == 0)
+  (negedge wenb => (db_o0 +: db_i0))   = (TWO_R,TWO_F) ;               
+if (wenb == 0)
+  (negedge wenb => (db_o1 +: db_i1))   = (TWO_R,TWO_F) ;                 
+if (wenb == 0)
+  (negedge wenb => (db_o2 +: db_i2))   = (TWO_R,TWO_F) ;                 
+if (wenb == 0)
+  (negedge wenb => (db_o3 +: db_i3))   = (TWO_R,TWO_F) ;                 
+
+//
+// add all setup/hold checks for data and the address.
+//
+
+  $setup (ab0, negedge wenb, TAS);
+  $hold  (posedge wenb, ab0, TAH);
+  $setup (ab1, negedge wenb, TAS);
+  $hold  (posedge wenb, ab1, TAH);
+  $setup (ab2, negedge wenb, TAS);
+  $hold  (posedge wenb, ab2, TAH);
+            
+  $width (negedge wenb, TWP);
+
+  $setup (db_i0, posedge wenb, TDS);
+  $hold  (posedge wenb, db_i0, TDH);
+  $setup (db_i1, posedge wenb, TDS);
+  $hold  (posedge wenb, db_i1, TDH);
+  $setup (db_i2, posedge wenb, TDS);
+  $hold  (posedge wenb, db_i2, TDH);
+  $setup (db_i3, posedge wenb, TDS);
+  $hold  (posedge wenb, db_i3, TDH);
+
+ endspecify
+endmodule
+`endcelldefine

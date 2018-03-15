@@ -1,0 +1,40 @@
+--               Copyright 2006-2007 Mentor Graphics Corporation
+--                            All Rights Reserved.
+--  
+--               THIS WORK CONTAINS TRADE SECRET AND PROPRIETARY
+--             INFORMATION WHICH IS THE PROPERTY OF MENTOR GRAPHICS 
+--            CORPORATION OR ITS LICENSORS AND IS SUBJECT TO LICENSE
+--                                   TERMS.
+--  
+--        	             Questa Verification Library (QVL)
+-- 
+--        U.S. Patent Numbers 6,175,946, 6,292,765, 6,609,229, 6,848,088
+--                                and 6,885,983 
+-- 
+-- ************************************************************************
+--  
+-- DESCRIPTION:  Template for PSL Vunit
+-- 
+-- LAST MODIFIED: 14/11/2008
+-- 
+-- ************************************************************************
+
+--  VUnit name = psl_jtag_vunit
+--  Bind to Entity 'tap_ctrl' & Entity 'rtl'
+vunit psl_jtag_vunit (tap_ctrl(rtl)) {
+
+
+--===============================================================
+--=======  Assertions section for detecting Sync & Async reset ==
+--=============================================================== 
+
+
+-- ***********************
+-- This is where we need to verify REQ_TP_3.1
+
+-- ***********************  
+ property detect_async_reset is (always
+              {not(trstl)} |-> {pstate = "1111"})@rising_edge(tck);
+ assert detect_async_reset;
+ 
+}
